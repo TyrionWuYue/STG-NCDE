@@ -18,6 +18,7 @@ from lib.TrainInits import print_model_parameters
 import os
 from os.path import join
 from Make_model import make_model
+from utils import auto_select_device
 from torch.utils.tensorboard import SummaryWriter
 #*************************************************************************#
 Mode = 'train'
@@ -48,7 +49,7 @@ args.add_argument('--mode', default=Mode, type=str)
 args.add_argument('--device', default=0, type=int, help='indices of GPUs')
 args.add_argument('--debug', default=DEBUG, type=eval)
 args.add_argument('--model', default=MODEL, type=str)
-args.add_argument('--cuda', default=True, type=bool)
+args.add_argument('--cuda', default=False, type=bool)
 args.add_argument('--comment', default='', type=str)
 
 
@@ -108,9 +109,7 @@ args.add_argument('--tensorboard',action='store_true',help='tensorboard')
 args = args.parse_args()
 init_seed(args.seed)
 
-GPU_NUM = args.device
-device = torch.device(f'cuda:{GPU_NUM}' if torch.cuda.is_available() else 'cpu')
-torch.cuda.set_device(device) # change allocation of current GPU
+auto_select_device(args)
 
 print(args)
 

@@ -10,3 +10,4 @@ runs/
 
 # others
 *.npy
+.venv
