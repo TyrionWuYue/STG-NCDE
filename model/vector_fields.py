@@ -138,11 +138,18 @@ class VectorField_g(torch.nn.Module):
         
         self.g_type = g_type
         if self.g_type == 'agc':
-            self.node_embeddings = nn.Parameter(torch.randn(num_nodes, embed_dim), requires_grad=True)
+            self.Wq = nn.Parameter(torch.randn(hidden_hidden_channels, embed_dim), requires_grad=True)
+            # self.node_embeddings = nn.Parameter(torch.randn(num_nodes, embed_dim), requires_grad=True)
             self.cheb_k = cheb_k
-            self.weights_pool = nn.Parameter(torch.FloatTensor(embed_dim, cheb_k, hidden_hidden_channels, hidden_hidden_channels))
-            self.bias_pool = nn.Parameter(torch.FloatTensor(embed_dim, hidden_hidden_channels))
-
+            # self.weights_pool = nn.Parameter(torch.FloatTensor(embed_dim, cheb_k, hidden_hidden_channels, hidden_hidden_channels))
+            # self.bias_pool = nn.Parameter(torch.FloatTensor(embed_dim, hidden_hidden_channels))
+            self.Mem = nn.Parameter(torch.randn(64, embed_dim), requires_grad=True)
+            self.weight = nn.Parameter(torch.randn(cheb_k * hidden_hidden_channels, hidden_hidden_channels))
+            self.bias = nn.Parameter(torch.randn(hidden_hidden_channels))
+            nn.init.xavier_normal_(self.Wq)
+            nn.init.xavier_normal_(self.Mem)
+            nn.init.xavier_normal_(self.weight)
+            nn.init.constant_(self.bias, val=0)
 
     def extra_repr(self):
         return "input_channels: {}, hidden_channels: {}, hidden_hidden_channels: {}, num_hidden_layers: {}" \
@@ -172,8 +179,14 @@ class VectorField_g(torch.nn.Module):
         - Node Adaptive Parameter Learning
         - Data Adaptive Graph Generation
         """
-        node_num = self.node_embeddings.shape[0]
-        supports = F.softmax(F.relu(torch.mm(self.node_embeddings, self.node_embeddings.transpose(0, 1))), dim=1)
+        node_num = z.shape[1]
+        batch_size = z.shape[0]
+        query = torch.matmul(z, self.Wq)
+        att_score = torch.softmax(torch.matmul(query, self.Mem.transpose(0, 1)), dim=1)
+        node_embeddings = torch.matmul(att_score, self.Mem)
+
+        # supports = F.softmax(F.relu(torch.mm(self.node_embeddings, self.node_embeddings.transpose(0, 1))), dim=1)
+        supports = F.softmax(F.relu(torch.matmul(node_embeddings, node_embeddings.transpose(-1, -2))), dim=-1)
         # laplacian=False
         laplacian=False
         if laplacian == True:
@@ -182,16 +195,20 @@ class VectorField_g(torch.nn.Module):
             # support_set = [torch.eye(node_num).to(supports.device), -supports]
             # support_set = [-supports]
         else:
-            support_set = [torch.eye(node_num).to(supports.device), supports]
+            support_set = [torch.eye(node_num).unsqueeze(0).expand(batch_size, -1, -1).to(supports.device), supports]
         #default cheb_k = 3
         for k in range(2, self.cheb_k):
             support_set.append(torch.matmul(2 * supports, support_set[-1]) - support_set[-2])
         supports = torch.stack(support_set, dim=0)
-        weights = torch.einsum('nd,dkio->nkio', self.node_embeddings, self.weights_pool)  #N, cheb_k, dim_in, dim_out
-        bias = torch.matmul(self.node_embeddings, self.bias_pool)                       #N, dim_out
-        x_g = torch.einsum("knm,bmc->bknc", supports, z)      #B, cheb_k, N, dim_in
-        x_g = x_g.permute(0, 2, 1, 3)  # B, N, cheb_k, dim_in
-        z = torch.einsum('bnki,nkio->bno', x_g, weights) + bias     #b, N, dim_out
+        x_g = []
+        for support in support_set:
+            x_g.append(torch.einsum("bnm,bmc->bnc", support, z))
+        x_g = torch.cat(x_g, dim=-1) # B, N, cheb_k*C
+        # weights = torch.einsum('nd,dkio->nkio', self.node_embeddings, self.weights_pool)  #N, cheb_k, dim_in, dim_out
+        # bias = torch.matmul(self.node_embeddings, self.bias_pool)                       #N, dim_out
+        # x_g = torch.einsum("knm,bmc->bknc", supports, z)      #B, cheb_k, N, dim_in
+        # x_g = x_g.permute(0, 2, 1, 3)  # B, N, cheb_k, dim_in
+        z = torch.einsum('bni,io->bno', x_g, self.weight) + self.bias     #b, N, dim_out
         return z
 
 
