@@ -15,7 +15,7 @@ class NeuralGCDE(nn.Module):
         self.num_layers = args.num_layers
 
         self.default_graph = args.default_graph
-        self.node_embeddings = nn.Parameter(torch.randn(self.num_node, args.embed_dim), requires_grad=True)
+        # self.node_embeddings = nn.Parameter(torch.randn(self.num_node, args.embed_dim), requires_grad=True)
         
         self.func_f = func_f
         self.func_g = func_g
